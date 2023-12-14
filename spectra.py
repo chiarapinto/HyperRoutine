@@ -38,9 +38,6 @@ class SpectraMaker:
 
         self.inv_mass_signal_func = "dscb"
         self.inv_mass_bkg_func = "pol1"  # could be either a string or a list of strings
-        self.fit_func = None
-        self.fit_options = None
-        self.fit_range = []
         self.sigma_range_mc_to_data = [1., 1.5]
 
         self.output_dir = None
@@ -55,6 +52,15 @@ class SpectraMaker:
         self.chi2_cut = 1.4
         self.relative_error_cut = 1.
         self.outlier_cut = 3
+
+        # fit to the spectrum
+        self.fit_func = None
+        self.fit_options = None
+        self.fit_range = []
+        self.fit_chi2 = None
+        self.fit_NDF = None
+        self.fit_prob = None
+
 
     def _check_members(self):
 
@@ -222,6 +228,10 @@ class SpectraMaker:
                 self.fit_func, self.fit_options, '', self.fit_range[0], self.fit_range[1])
         else:
             self.h_corrected_counts.Fit(self.fit_func, 'R')
+
+        self.fit_chi2 = self.fit_func.GetChisquare()
+        self.fit_NDF = self.fit_func.GetNDF()
+        self.fit_prob = self.fit_func.GetProb()
 
     def del_dyn_members(self):
         self.raw_counts = []

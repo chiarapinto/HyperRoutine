@@ -139,6 +139,7 @@ if __name__ == '__main__':
     he3_spectrum.SetLineColor(ROOT.kRed)
 
     spectra_maker.fit_func = he3_spectrum
+    spectra_maker.fit_func.SetName('fit_func')
     spectra_maker.fit_options = 'MIQ+'
     spectra_maker.fit()
     spectra_maker.dump_to_output_dir()
@@ -147,17 +148,21 @@ if __name__ == '__main__':
     std_corrected_counts_err = copy.deepcopy(
         spectra_maker.corrected_counts_err)
     final_stat = copy.deepcopy(spectra_maker.h_corrected_counts)
+    final_fit = copy.deepcopy(spectra_maker.fit_func)
+    final_chi2 = copy.deepcopy(spectra_maker.fit_chi2)
+    final_ndf = copy.deepcopy(spectra_maker.fit_NDF)
+    final_prob = copy.deepcopy(spectra_maker.fit_prob)
     final_stat.SetName('hStat')
     utils.setHistStyle(final_stat, ROOT.kBlack)
     final_syst = final_stat.Clone('hSyst')
     final_syst_rms = final_stat.Clone('hSystRMS')
     final_syst_rms.SetLineColor(ROOT.kAzure+1)
 
-    # std_yield = spectra_maker.fit_func.GetParameter(0)
-    # std_yield_err = spectra_maker.fit_func.GetParError(0)
+    std_yield = spectra_maker.fit_func.GetParameter(0)
+    std_yield_err = spectra_maker.fit_func.GetParError(0)
 
-    # yield_dist = ROOT.TH1D('hYieldSyst', ';dN/dy ;Counts', 40, 120, 380)
-    # yield_prob = ROOT.TH1D('hYieldProb', ';prob. ;Counts', 100, 0, 1)
+    yield_arr = []
+    yield_prob_arr = []
 
     h_pt_syst = []
     for i_bin in range(0, len(spectra_maker.bins) - 1):
@@ -280,8 +285,11 @@ if __name__ == '__main__':
                 trial_dir = output_dir_syst.mkdir(f'trial_{i_combo}')
                 spectra_maker.output_dir = trial_dir
                 spectra_maker.dump_to_output_dir()
-                # yield_dist.Fill(spectra_maker.fit_func.GetParameter(0))
-                # yield_prob.Fill(spectra_maker.fit_func.GetProb())
+                yld = spectra_maker.fit_func.GetParameter(0)
+                yield_arr.append(yld)
+                prb = spectra_maker.fit_func.GetProb()
+                yield_prob_arr.append(prb)
+                print(f'        yld: {yld:.2e}      prob: {prb:.2f}')
 
             spectra_maker.del_dyn_members()
 
@@ -346,17 +354,102 @@ if __name__ == '__main__':
         canvas.Write()
         canvas.SaveAs(f'{output_dir_name}/cYield_{i_bin}.pdf')
 
+    # canvas with final spectrum + fit
     cFinalSpectrum = ROOT.TCanvas('cFinalSpectrum', 'cFinalSpectrum', 800, 600)
-    final_stat.Draw('PEX0')
+    cFinalSpectrum.SetLeftMargin(0.15)
+    cFinalSpectrum.DrawFrame(0., 1.e-15, 5.2, 1.5e-8, r';#it{p}_{T} (GeV/#it{c});#frac{d#it{N}}{d#it{p}_{T}} (GeV/#it{c})^{-1}')
+
+    func = final_stat.GetFunction('fit_func')
+    final_stat.GetListOfFunctions().Remove(func)
+    final_fit.SetRange(0., 10.)
+    final_fit.SetTitle('')
+    final_fit.Draw('L SAME')
+    final_stat.Draw('PEX0 SAME')
     final_syst_rms.Draw('PE2 SAME')
     final_syst.Draw('PE2 SAME')
+
+    # ALICE box
+    pinfo_alice = ROOT.TPaveText(0.632, 0.75, 0.932, 0.85, 'NDC')
+    pinfo_alice.SetBorderSize(0)
+    pinfo_alice.SetFillStyle(0)
+    pinfo_alice.SetTextAlign(11)
+    pinfo_alice.SetTextFont(42)
+    pinfo_alice.AddText('ALICE')
+    pinfo_alice.AddText('pp #sqrt{#it{s}} = 13.6 TeV')
+    pinfo_alice.Draw()
+
+    # fit legend
+    legend_fit = ROOT.TLegend(0.632, 0.5, 0.932, 0.7, '', 'brNDC')
+    legend_fit.AddEntry(final_syst, 'Syst. from fit', 'PF')
+    legend_fit.AddEntry(final_syst_rms, 'Syst. from RMS', 'PF')
+    legend_fit.AddEntry(final_fit, 'Levy-Tsallis', 'L')
+    chi2_label = r'#chi^{2} / NDF = ' + f'{final_chi2:.2f} / {final_ndf} (Prob. = {final_prob:.2f})'
+    legend_fit.AddEntry(ROOT.nullptr, chi2_label, '')
+    legend_fit.Draw()
+
     cFinalSpectrum.Write()
     cFinalSpectrum.SaveAs(f'{output_dir_name}/cFinalSpectrum.pdf')
 
+    # systematic on the integrated yield
+    yield_dist = ROOT.TH1D('hYieldSyst', r';d#it{N} / d#it{p}_{T} (GeV/#it{c})^{-1};', 40, 0.5 * std_yield, 1.5 * std_yield)
+    for yld in yield_arr:
+        yield_dist.Fill(yld)
+    yield_prob = ROOT.TH1D('hYieldProb', r';Probability;', 100, 0, 1)
+    for prob in yield_prob_arr:
+        yield_prob.Fill(prob)
 
+    canvas = ROOT.TCanvas('cYield_integrated', 'cYield_integrated', 800, 600)
+    canvas.SetTopMargin(0.1)
+    canvas.SetBottomMargin(0.15)
+    canvas.SetLeftMargin(0.08)
+    canvas.SetRightMargin(0.08)
+    canvas.DrawFrame(0.5 * std_yield, 0, 1.5 * std_yield,
+                        1.1 * yield_dist.GetMaximum(), r';d#it{N} / d#it{p}_{T} (GeV/#it{c})^{-1};')
 
-    # yield_dist.Write()
-    # yield_prob.Write()
+    std_line = ROOT.TLine(std_yield, 0, std_yield, 1.05 * yield_dist.GetMaximum())
+    std_line.SetLineColor(ROOT.kRed)
+    std_line.SetLineWidth(2)
+    # create box for statistical uncertainty
+    std_errorbox = ROOT.TBox(std_yield - std_yield_err, 0,
+                                std_yield + std_yield_err, 1.05 * yield_dist.GetMaximum())
+    std_errorbox.SetFillColorAlpha(ROOT.kRed, 0.5)
+    std_errorbox.SetLineWidth(0)
+
+    # fitting histogram with systematic variations
+    fit_func = ROOT.TF1('fit_func_integrated', 'gaus', 0.5 *
+                        std_yield, 1.5 * std_yield)
+    fit_func.SetLineColor(ROOT.kGreen+3)
+    yield_dist.Fit(fit_func, 'Q')
+    syst_mu = fit_func.GetParameter(1)
+    syst_mu_err = fit_func.GetParError(1)
+    syst_sigma = fit_func.GetParameter(2)
+    syst_sigma_err = fit_func.GetParError(2)
+    syst_rms = yield_dist.GetRMS()
+    fit_param = ROOT.TPaveText(0.7, 0.6, 0.9, 0.82, 'NDC')
+    fit_param.SetBorderSize(0)
+    fit_param.SetFillStyle(0)
+    fit_param.SetTextAlign(12)
+    fit_param.SetTextFont(42)
+    fit_param.AddText(
+        '#mu = ' + f'{syst_mu:.2e} #pm {syst_mu_err:.2e}')
+    fit_param.AddText(
+        '#sigma = ' + f'{syst_sigma:.2e} #pm {syst_sigma_err:.2e}')
+    fit_param.AddText(
+        'RMS = ' + f'{syst_rms:.2e} #pm {yield_dist.GetRMSError():.2e}')
+    fit_param.AddText(
+        'standard value = ' + f'{std_yield:.2e} #pm {std_yield_err:.2e}')
+    # draw histogram with systematic variations
+    canvas.cd()
+    yield_dist.Draw('HISTO SAME')
+    fit_func.Draw('SAME')
+    std_errorbox.Draw()
+    std_line.Draw()
+    fit_param.Draw()
+    canvas.Write()
+    canvas.SaveAs(f'{output_dir_name}/cYield_integrated.pdf')
+
+    yield_dist.Write()
+    yield_prob.Write()
     output_file.Close()
 
     print("** Systematics analysis done. ** \n")
