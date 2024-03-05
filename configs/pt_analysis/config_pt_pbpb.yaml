@@ -14,6 +14,7 @@ signal_fit_func: "dscb"
 is_matter: "both"
 n_bins_mass_data: 40
 n_bins_mass_mc: 80
+calibrate_he_momentum: False
 
 selection:
   [
